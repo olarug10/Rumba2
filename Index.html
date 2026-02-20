@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kortpoäng</title>
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Kortpoäng">
+  <meta name="theme-color" content="#f2f2f7">
+
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; background:#f2f2f7; margin:0; color:#111; }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 14px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .title { font-size:20px; font-weight:600; }
+    .pill { font-size:12px; color:#6b7280; }
+    .card { background:#fff; border-radius:14px; padding:12px; box-shadow: 0 1px 0 rgba(0,0,0,.03); margin-bottom:10px; }
+    .row { display:flex; gap:12px; }
+    .col { flex:1; }
+    label { font-size:12px; color:#444; display:block; margin-bottom:6px; }
+    input, select { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:12px; border:1px solid #d9dde3; font-size:18px; }
+    input[disabled] { opacity:.35; }
+    button { width:100%; padding:12px; border-radius:12px; border:0; font-size:16px; }
+    .btn { background:#111827; color:#fff; }
+    .btn2 { background:#e5e7eb; color:#111827; }
+    .btnDanger { background:#fff; color:#ef4444; border:1px solid #ef4444; border-radius:10px; font-size:14px; padding:9px; }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:10px 0; border-bottom:1px solid #eee; vertical-align:top; }
+    td:first-child { font-size:18px; }
+    td:last-child { text-align:right; color:#6b7280; white-space:nowrap; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="title">Kortpoäng</div>
+    <div class="pill" id="statusPill"></div>
+  </div>
+
+  <div class="card" id="setupCard">
+    <div class="topbar" style="margin-bottom:6px;">
+      <div style="font-size:16px; font-weight:600;">Setup</div>
+      <button class="btnDanger" id="btnContinue" style="width:auto;">Fortsätt</button>
+    </div>
+
+    <label>Antal spelare (2–8)</label>
+    <select id="count"></select>
+
+    <div id="names"></div>
+
+    <div class="row" style="margin-top:12px;">
+      <div class="col"><button class="btn" id="btnStart">Starta match</button></div>
+      <div class="col"><button class="btn2" id="btnClearAll">Rensa allt</button></div>
+    </div>
+  </div>
+
+  <div class="card" id="matchCard">
+    <div class="topbar" style="margin-bottom:6px;">
+      <div style="font-size:16px; font-weight:600;">Runda</div>
+      <button class="btnDanger" id="btnReset" style="width:auto;">Nollställ</button>
+    </div>
+
+    <div id="inputs"></div>
+
+    <div class="row" style="margin-top:12px;">
+      <div class="col"><button class="btn" id="btnAdd">Lägg till runda</button></div>
+      <div class="col"><button class="btn2" id="btnUndo">Ångra</button></div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <button class="btn2" id="btnSetup">Ändra spelare</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Ställning</div>
+    <table id="standings"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Historik (senaste överst)</div>
+    <table id="history"></table>
+  </div>
+</div>
+
+<script>
+  const LIMIT = 100;
+  const KEY = "kortpoang_state_v1";
+
+  const el = (id)=>document.getElementById(id);
+  const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
+
+  function nowStr(){ return new Date().toLocaleString(); }
+
+  function defaultState(){
+    return {
+      players: ["Emma","Ola","Oliver","Sophie"],
+      rounds: [],
+      updatedAt: nowStr()
+    };
+  }
+
+  function load(){
+    try{
+      const raw = localStorage.getItem(KEY);
+      if(!raw) return defaultState();
+      return JSON.parse(raw);
+    }catch(e){ return defaultState(); }
+  }
+
+  function save(state){
+    state.updatedAt = nowStr();
+    localStorage.setItem(KEY, JSON.stringify(state));
+    el("statusPill").textContent = "Uppdaterad: " + state.updatedAt.split(", ").pop();
+  }
+
+  function totals(state){
+    const t = {};
+    state.players.forEach(p=>t[p]=0);
+    state.rounds.forEach(r=>{
+      state.players.forEach(p=> t[p] += Number(r[p]||0));
+    });
+    return t;
+  }
+
+  function renderCountSelect(selected){
+    const sel = el("count");
+    sel.innerHTML = "";
+    for(let i=2;i<=8;i++){
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = i;
+      if(i===selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  function renderNameFields(state){
+    const n = Number(el("count").value||state.players.length||4);
+    const box = el("names");
+    box.innerHTML = "";
+    for(let i=0;i<n;i++){
+      const val = state.players[i] || "";
+      box.innerHTML += `
+        <div style="margin-top:10px;">
+          <label>Namn ${i+1}</label>
+          <input class="nm" value="${val}" placeholder="Spelare ${i+1}" />
+        </div>`;
+    }
+  }
+
+  function collectNames(){
+    const n = Number(el("count").value||4);
+    const raw = qsa(".nm").slice(0,n).map((inp, idx)=>{
+      const v = (inp.value||"").trim();
+      return v ? v : `Spelare ${idx+1}`;
+    });
+    const seen = {};
+    return raw.map(name=>{
+      if(!seen[name]) { seen[name]=1; return name; }
+      seen[name]+=1;
+      return name + " " + seen[name];
+    });
+  }
+
+  function renderAll(state){
+    const t = totals(state);
+
+    const box = el("inputs");
+    box.innerHTML = "";
+    for(let i=0;i<state.players.length;i+=2){
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.marginTop = "10px";
+      [state.players[i], state.players[i+1]].forEach(p=>{
+        if(!p) return;
+        const out = t[p] >= LIMIT;
+        row.innerHTML += `
+          <div class="col">
+            <label>${p}</label>
+            <input class="pt" data-player="${p}" inputmode="numeric" placeholder="0" ${out?"disabled":""}/>
+          </div>`;
+      });
+      box.appendChild(row);
+    }
+
+    const sorted = [...state.players].sort((a,b)=>{
+      if(t[a]!==t[b]) return t[a]-t[b];
+      return a.localeCompare(b);
+    });
+
+    const table = el("standings");
+    table.innerHTML = "";
+    sorted.forEach(p=>{
+      const tag = t[p]>=LIMIT?" • UTE":"";
+      table.innerHTML += `<tr><td>${p}</td><td>${t[p]}${tag}</td></tr>`;
+    });
+
+    const hist = el("history");
+    hist.innerHTML = "";
+    for(let i=state.rounds.length-1;i>=0;i--){
+      const r = state.rounds[i];
+      const parts = state.players.map(p=>`${p}:${r[p]||0}`).join(" • ");
+      hist.innerHTML += `<tr><td>Runda ${i+1}</td><td>${parts}</td></tr>`;
+    }
+  }
+
+  let state = load();
+  renderCountSelect(state.players.length||4);
+  renderNameFields(state);
+  renderAll(state);
+
+  el("count").addEventListener("change", ()=>renderNameFields(state));
+
+  el("btnStart").addEventListener("click", ()=>{
+    state.players = collectNames();
+    state.rounds = [];
+    save(state);
+    renderAll(state);
+  });
+
+  el("btnContinue").addEventListener("click", ()=>renderAll(state));
+
+  el("btnClearAll").addEventListener("click", ()=>{
+    if(confirm("Rensa allt?")){
+      localStorage.removeItem(KEY);
+      state = defaultState();
+      save(state);
+      renderCountSelect(state.players.length);
+      renderNameFields(state);
+      renderAll(state);
+    }
+  });
+
+  el("btnAdd").addEventListener("click", ()=>{
+    const t = totals(state);
+    const round = {};
+    qsa(".pt").forEach(inp=>{
+      const p = inp.dataset.player;
+      round[p] = t[p]>=LIMIT?0:Math.max(0,Number(inp.value||0));
+    });
+    state.rounds.push(round);
+    save(state);
+    renderAll(state);
+  });
+
+  el("btnUndo").addEventListener("click", ()=>{
+    if(state.rounds.length>0){
+      state.rounds.pop();
+      save(state);
+      renderAll(state);
+    }
+  });
+
+  el("btnReset").addEventListener("click", ()=>{
+    if(confirm("Nollställ match?")){
+      state.rounds=[];
+      save(state);
+      renderAll(state);
+    }
+  });
+
+  el("btnSetup").addEventListener("click", ()=>{
+    renderCountSelect(state.players.length||4);
+    renderNameFields(state);
+  });
+</script>
+</body>
+</html>
