@@ -161,7 +161,7 @@
 
 <script>
   const LIMIT = 100;
-  const KEY = "kortpoang_state_v6";
+  const KEY = "kortpoang_state_v7";
 
   const el = (id)=>document.getElementById(id);
   const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
@@ -172,7 +172,7 @@
     return {
       players: ["Emma","Ola","Oliver","Sophie"],
       rounds: [],
-      outOrder: [],     // ordning man åker ut (först ute först i listan)
+      outOrder: [],      // [först ute, ..., sist ute]
       winnerShown: false,
       updatedAt: nowStr()
     };
@@ -369,7 +369,6 @@
   }
 
   function recomputeOutOrderFromRounds(state){
-    // Bygg om outOrder deterministiskt från historik (för Undo)
     const outOrder = [];
     const running = {};
     state.players.forEach(p => running[p] = 0);
@@ -409,19 +408,19 @@
       box.appendChild(row);
     }
 
-    // Sortering:
-    // Aktiva sorterade på poäng
+    // Sortering: aktiva först (lägst poäng), sedan UTE i ut-ordning (sist ute överst, först ute längst ner)
     const active = state.players.filter(p => (t[p]||0) < LIMIT);
     active.sort((a,b)=> (t[a]||0)-(t[b]||0) || a.localeCompare(b));
 
-    // Ute sorterade i utordning (först ute ska längst ner => först ute först i listan)
     const out = state.players.filter(p => (t[p]||0) >= LIMIT);
-    // Se till att alla ute finns i outOrder (om man laddar gammal data)
+
+    // se till att alla "ute" finns i outOrder
     out.forEach(p=>{
       if(state.outOrder.indexOf(p) === -1) state.outOrder.push(p);
     });
 
-    out.sort((a,b)=> state.outOrder.indexOf(a) - state.outOrder.indexOf(b));
+    // FIX: vänd ordningen så sist ute kommer först
+    out.sort((a,b)=> state.outOrder.indexOf(b) - state.outOrder.indexOf(a));
 
     const sorted = active.concat(out);
 
@@ -433,13 +432,9 @@
       table.innerHTML += '<tr><td>' + escapeHtml(p) + tag + '</td><td>' + val + '</td></tr>';
     });
 
-    // Note + winner
+    // Note
     const alive = state.players.filter(p => (t[p]||0) < LIMIT);
-    if(alive.length === 1){
-      el("note").textContent = "Kvar: " + alive[0];
-    } else {
-      el("note").textContent = "";
-    }
+    el("note").textContent = alive.length === 1 ? ("Kvar: " + alive[0]) : "";
 
     // Historik
     const hist = el("history");
@@ -457,14 +452,13 @@
   // ---- Init ----
   let state = load();
 
-  // Setup UI init
   renderCountSelect(state.players.length || 4);
   renderNameFields(state);
 
   // Göm setup som standard
   el("setupCard").style.display = "none";
 
-  // Se till att outOrder finns rimligt (t.ex. om state äldre)
+  // Bygg om outOrder (för att alltid vara korrekt)
   recomputeOutOrderFromRounds(state);
 
   renderAll(state);
@@ -516,7 +510,7 @@
 
     const newTotals = totals(state);
 
-    // Registrera ny-utslagna + toast
+    // Ute-händelser
     state.players.forEach(p=>{
       if ((prevTotals[p]||0) < LIMIT && (newTotals[p]||0) >= LIMIT) {
         if (state.outOrder.indexOf(p) === -1) state.outOrder.push(p);
@@ -524,7 +518,7 @@
       }
     });
 
-    // Winner-check (visas bara en gång per match)
+    // Winner-check (visas en gång per match)
     const aliveNow = state.players.filter(p => (newTotals[p]||0) < LIMIT);
     if(aliveNow.length === 1 && state.winnerShown === false){
       state.winnerShown = true;
@@ -540,7 +534,6 @@
     if(state.rounds.length===0) return;
     state.rounds.pop();
 
-    // Rebuild outOrder + winnerShown from history
     recomputeOutOrderFromRounds(state);
     const t = totals(state);
     const alive = state.players.filter(p => (t[p]||0) < LIMIT);
