@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Kortpoäng</title>
 
+  <!-- PWA-ish -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Kortpoäng">
@@ -31,15 +32,65 @@
     td:first-child { font-size:18px; }
     td:last-child { text-align:right; color:#6b7280; white-space:nowrap; }
     .hidden { display:none; }
+
+    /* OUT toast animation */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.25);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 9999;
+    }
+    .overlay.show { display: flex; }
+    .toast {
+      width: min(420px, 100%);
+      background: white;
+      border-radius: 16px;
+      padding: 16px 16px 14px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.18);
+      transform: scale(.92);
+      opacity: 0;
+      text-align: center;
+      border: 1px solid #eee;
+    }
+    .overlay.show .toast {
+      animation: popIn .20s ease-out forwards, popOut .35s ease-in forwards;
+      animation-delay: 0s, 1.45s;
+    }
+    .toast .big { font-size: 26px; font-weight: 750; margin-bottom: 6px; }
+    .toast .sub { font-size: 14px; color:#6b7280; }
+
+    @keyframes popIn {
+      to { transform: scale(1); opacity: 1; }
+    }
+    @keyframes popOut {
+      to { transform: scale(.96); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .overlay.show .toast { animation: none; transform: none; opacity: 1; }
+    }
   </style>
 </head>
 <body>
+
+<!-- Overlay/toast for "UTE" -->
+<div class="overlay" id="overlay">
+  <div class="toast">
+    <div class="big" id="toastTitle">UTE</div>
+    <div class="sub" id="toastSub"></div>
+  </div>
+</div>
+
 <div class="wrap">
   <div class="topbar">
     <div class="title">Kortpoäng</div>
     <div class="pill" id="statusPill"></div>
   </div>
 
+  <!-- SETUP -->
   <div class="card" id="setupCard">
     <div class="topbar" style="margin-bottom:6px;">
       <div style="font-size:16px; font-weight:600;">Setup</div>
@@ -52,14 +103,16 @@
     <div id="names"></div>
 
     <div class="row" style="margin-top:12px;">
-      <div class="col"><button class="btn" id="btnStart">Starta match</button></div>
-      <div class="col"><button class="btn2" id="btnClearAll">Rensa allt</button></div>
+      <div class="col"><button class="btn" id="btnStart">Starta ny match</button></div>
+      <div class="col"><button class="btn2" id="btnSetupClose">Stäng</button></div>
     </div>
   </div>
 
+  <!-- MATCH -->
   <div class="card" id="matchCard">
     <div class="topbar" style="margin-bottom:6px;">
       <div style="font-size:16px; font-weight:600;">Runda</div>
+      <!-- EN (1) nollställknapp -->
       <button class="btnDanger" id="btnReset" style="width:auto;">Nollställ</button>
     </div>
 
@@ -75,11 +128,13 @@
     </div>
   </div>
 
+  <!-- STÄLLNING -->
   <div class="card">
     <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Ställning</div>
     <table id="standings"></table>
   </div>
 
+  <!-- HISTORIK -->
   <div class="card">
     <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Historik (senaste överst)</div>
     <table id="history"></table>
@@ -88,7 +143,7 @@
 
 <script>
   const LIMIT = 100;
-  const KEY = "kortpoang_state_v1";
+  const KEY = "kortpoang_state_v2";
 
   const el = (id)=>document.getElementById(id);
   const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
@@ -96,19 +151,19 @@
   function nowStr(){ return new Date().toLocaleString(); }
 
   function defaultState(){
-    return {
-      players: ["Emma","Ola","Oliver","Sophie"],
-      rounds: [],
-      updatedAt: nowStr()
-    };
+    return { players: ["Emma","Ola","Oliver","Sophie"], rounds: [], updatedAt: nowStr() };
   }
 
   function load(){
     try{
       const raw = localStorage.getItem(KEY);
       if(!raw) return defaultState();
-      return JSON.parse(raw);
-    }catch(e){ return defaultState(); }
+      const s = JSON.parse(raw);
+      if(!s || !Array.isArray(s.players) || !Array.isArray(s.rounds)) return defaultState();
+      return s;
+    }catch(e){
+      return defaultState();
+    }
   }
 
   function save(state){
@@ -126,6 +181,10 @@
     return t;
   }
 
+  function showSetup(show){
+    el("setupCard").classList.toggle("hidden", !show);
+  }
+
   function renderCountSelect(selected){
     const sel = el("count");
     sel.innerHTML = "";
@@ -138,6 +197,14 @@
     }
   }
 
+  function escapeHtml(s){
+    return (s||"")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;");
+  }
+
   function renderNameFields(state){
     const n = Number(el("count").value||state.players.length||4);
     const box = el("names");
@@ -147,7 +214,7 @@
       box.innerHTML += `
         <div style="margin-top:10px;">
           <label>Namn ${i+1}</label>
-          <input class="nm" value="${val}" placeholder="Spelare ${i+1}" />
+          <input class="nm" value="${escapeHtml(val)}" placeholder="Spelare ${i+1}" />
         </div>`;
     }
   }
@@ -158,17 +225,49 @@
       const v = (inp.value||"").trim();
       return v ? v : `Spelare ${idx+1}`;
     });
+    // unika
     const seen = {};
     return raw.map(name=>{
       if(!seen[name]) { seen[name]=1; return name; }
       seen[name]+=1;
-      return name + " " + seen[name];
+      return `${name} ${seen[name]}`;
     });
+  }
+
+  // ---- OUT toast queue ----
+  const outQueue = [];
+  let showingOut = false;
+
+  function enqueueOut(name, total){
+    outQueue.push({name, total});
+    if(!showingOut) runOutQueue();
+  }
+
+  async function runOutQueue(){
+    showingOut = true;
+    while(outQueue.length){
+      const {name, total} = outQueue.shift();
+      showOutToast(name, total);
+      // toast ~1.8s
+      await new Promise(r => setTimeout(r, 1850));
+    }
+    showingOut = false;
+  }
+
+  function showOutToast(name, total){
+    el("toastTitle").textContent = `${name} är UTE!`;
+    el("toastSub").textContent = `Total: ${total} (≥ ${LIMIT})`;
+    el("overlay").classList.add("show");
+    // liten vibration om möjligt
+    try { if (navigator.vibrate) navigator.vibrate(40); } catch(e){}
+    // stäng efter anim
+    setTimeout(()=> el("overlay").classList.remove("show"), 1750);
   }
 
   function renderAll(state){
     const t = totals(state);
 
+    // Inputs (2 kolumner)
     const box = el("inputs");
     box.innerHTML = "";
     for(let i=0;i<state.players.length;i+=2){
@@ -177,96 +276,130 @@
       row.style.marginTop = "10px";
       [state.players[i], state.players[i+1]].forEach(p=>{
         if(!p) return;
-        const out = t[p] >= LIMIT;
+        const out = (t[p]||0) >= LIMIT;
         row.innerHTML += `
           <div class="col">
-            <label>${p}</label>
-            <input class="pt" data-player="${p}" inputmode="numeric" placeholder="0" ${out?"disabled":""}/>
+            <label>${escapeHtml(p)}</label>
+            <input class="pt" data-player="${escapeHtml(p)}" inputmode="numeric" placeholder="0" ${out ? "disabled" : ""}/>
           </div>`;
       });
       box.appendChild(row);
     }
 
+    // Standings (sorterade)
     const sorted = [...state.players].sort((a,b)=>{
-      if(t[a]!==t[b]) return t[a]-t[b];
+      if((t[a]||0)!==(t[b]||0)) return (t[a]||0)-(t[b]||0);
       return a.localeCompare(b);
     });
-
     const table = el("standings");
     table.innerHTML = "";
     sorted.forEach(p=>{
-      const tag = t[p]>=LIMIT?" • UTE":"";
-      table.innerHTML += `<tr><td>${p}</td><td>${t[p]}${tag}</td></tr>`;
+      const val = t[p]||0;
+      const tag = val>=LIMIT ? " • UTE" : "";
+      table.innerHTML += `<tr><td>${escapeHtml(p)}</td><td>${val}${tag}</td></tr>`;
     });
 
+    // Historik
     const hist = el("history");
     hist.innerHTML = "";
     for(let i=state.rounds.length-1;i>=0;i--){
       const r = state.rounds[i];
-      const parts = state.players.map(p=>`${p}:${r[p]||0}`).join(" • ");
-      hist.innerHTML += `<tr><td>Runda ${i+1}</td><td>${parts}</td></tr>`;
+      const parts = state.players.map(p=>`${p}:${Number(r[p]||0)}`).join(" • ");
+      hist.innerHTML += `<tr><td style="font-size:14px;">Runda ${i+1}</td><td style="font-size:12px; color:#6b7280;">${escapeHtml(parts)}</td></tr>`;
+    }
+    if(state.rounds.length===0){
+      hist.innerHTML = `<tr><td></td><td></td></tr>`;
     }
   }
 
+  // ---- Actions ----
   let state = load();
-  renderCountSelect(state.players.length||4);
-  renderNameFields(state);
-  renderAll(state);
 
-  el("count").addEventListener("change", ()=>renderNameFields(state));
+  // Init setup UI
+  renderCountSelect(state.players.length || 4);
+  renderNameFields(state);
+  showSetup(false);
+  renderAll(state);
+  save(state);
+
+  el("count").addEventListener("change", ()=> renderNameFields(state));
 
   el("btnStart").addEventListener("click", ()=>{
-    state.players = collectNames();
+    const players = collectNames();
+    state.players = players;
+    state.rounds = [];
+    save(state);
+    showSetup(false);
+    renderAll(state);
+    window.scrollTo({ top: 0, behavior:"smooth" });
+  });
+
+  el("btnContinue").addEventListener("click", ()=>{
+    showSetup(false);
+    renderAll(state);
+    window.scrollTo({ top: 0, behavior:"smooth" });
+  });
+
+  el("btnSetupClose").addEventListener("click", ()=>{
+    showSetup(false);
+    window.scrollTo({ top: 0, behavior:"smooth" });
+  });
+
+  el("btnSetup").addEventListener("click", ()=>{
+    renderCountSelect(state.players.length || 4);
+    renderNameFields(state);
+    showSetup(true);
+    window.scrollTo({ top: 0, behavior:"smooth" });
+  });
+
+  el("btnAdd").addEventListener("click", ()=>{
+    const prevTotals = totals(state);
+
+    const round = {};
+    qsa(".pt").forEach(inp=>{
+      const p = inp.dataset.player;
+      const prev = prevTotals[p] || 0;
+      // låsade fält skickar inte värde, men vi skyddar ändå
+      round[p] = (prev >= LIMIT) ? 0 : Math.max(0, Number(inp.value||0));
+    });
+    // säkerställ alla spelare
+    state.players.forEach(p=> { if(round[p] === undefined) round[p] = 0; });
+
+    state.rounds.push(round);
+    save(state);
+
+    // rensa inputs
+    qsa(".pt").forEach(inp => inp.value = "");
+
+    // render + OUT animation(s)
+    renderAll(state);
+    const newTotals = totals(state);
+    state.players.forEach(p=>{
+      if ((prevTotals[p]||0) < LIMIT && (newTotals[p]||0) >= LIMIT) {
+        enqueueOut(p, newTotals[p]);
+      }
+    });
+  });
+
+  el("btnUndo").addEventListener("click", ()=>{
+    if(state.rounds.length===0) return;
+    state.rounds.pop();
+    save(state);
+    renderAll(state);
+  });
+
+  // ENDA reset-knappen
+  el("btnReset").addEventListener("click", ()=>{
+    if(!confirm("Nollställ match?")) return;
     state.rounds = [];
     save(state);
     renderAll(state);
   });
 
-  el("btnContinue").addEventListener("click", ()=>renderAll(state));
-
-  el("btnClearAll").addEventListener("click", ()=>{
-    if(confirm("Rensa allt?")){
-      localStorage.removeItem(KEY);
-      state = defaultState();
-      save(state);
-      renderCountSelect(state.players.length);
-      renderNameFields(state);
-      renderAll(state);
-    }
-  });
-
-  el("btnAdd").addEventListener("click", ()=>{
-    const t = totals(state);
-    const round = {};
-    qsa(".pt").forEach(inp=>{
-      const p = inp.dataset.player;
-      round[p] = t[p]>=LIMIT?0:Math.max(0,Number(inp.value||0));
-    });
-    state.rounds.push(round);
-    save(state);
-    renderAll(state);
-  });
-
-  el("btnUndo").addEventListener("click", ()=>{
-    if(state.rounds.length>0){
-      state.rounds.pop();
-      save(state);
-      renderAll(state);
-    }
-  });
-
-  el("btnReset").addEventListener("click", ()=>{
-    if(confirm("Nollställ match?")){
-      state.rounds=[];
-      save(state);
-      renderAll(state);
-    }
-  });
-
-  el("btnSetup").addEventListener("click", ()=>{
-    renderCountSelect(state.players.length||4);
-    renderNameFields(state);
-  });
+  // Om state är trasigt: öppna setup
+  if(!state.players || state.players.length < 2){
+    showSetup(true);
+  }
 </script>
 </body>
 </html>
