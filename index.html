@@ -11,7 +11,14 @@
   <meta name="theme-color" content="#f2f2f7">
 
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; background:#f2f2f7; margin:0; color:#111; }
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background:#f2f2f7;
+      margin:0;
+      color:#111;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
     .wrap { max-width: 680px; margin: 0 auto; padding: 14px; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
     .title { font-size:20px; font-weight:600; }
@@ -22,14 +29,16 @@
     label { font-size:12px; color:#444; display:block; margin-bottom:6px; }
     input, select { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:12px; border:1px solid #d9dde3; font-size:18px; }
     input[disabled] { opacity:.35; }
-    button { width:100%; padding:12px; border-radius:12px; border:0; font-size:16px; }
+    button { width:100%; padding:12px; border-radius:12px; border:0; font-size:16px; transition: transform 0.08s ease; }
+    button:active { transform: scale(0.96); }
     .btn { background:#111827; color:#fff; }
     .btn2 { background:#e5e7eb; color:#111827; }
-    .btnDanger { background:#fff; color:#ef4444; border:1px solid #ef4444; border-radius:10px; font-size:14px; padding:9px; }
+    .btnDanger { background:#fff; color:#ef4444; border:1px solid #ef4444; border-radius:10px; font-size:14px; padding:9px; width:auto; }
     table { width:100%; border-collapse:collapse; }
     td { padding:10px 0; border-bottom:1px solid #eee; vertical-align:top; }
-    td:first-child { font-size:18px; }
-    td:last-child { text-align:right; color:#6b7280; white-space:nowrap; }
+    td:first-child { font-size:20px; font-weight:600; }
+    td:last-child { text-align:right; font-size:22px; font-weight:700; color:#111827; white-space:nowrap; }
+    .muted { color:#6b7280; font-weight:500; font-size:14px; }
     .hidden { display:none; }
 
     /* Overlay + toast */
@@ -99,11 +108,11 @@
     <div class="pill" id="statusPill"></div>
   </div>
 
-  <!-- SETUP -->
+  <!-- SETUP (göms som standard, visas via "Ändra spelare") -->
   <div class="card" id="setupCard">
     <div class="topbar" style="margin-bottom:6px;">
       <div style="font-size:16px; font-weight:600;">Setup</div>
-      <button class="btnDanger" id="btnContinue" style="width:auto;">Fortsätt</button>
+      <button class="btnDanger" id="btnContinue">Fortsätt</button>
     </div>
 
     <label>Antal spelare (2–8)</label>
@@ -121,7 +130,7 @@
   <div class="card" id="matchCard">
     <div class="topbar" style="margin-bottom:6px;">
       <div style="font-size:16px; font-weight:600;">Runda</div>
-      <button class="btnDanger" id="btnReset" style="width:auto;">Nollställ</button>
+      <button class="btnDanger" id="btnReset">Nollställ</button>
     </div>
 
     <div id="inputs"></div>
@@ -140,6 +149,7 @@
   <div class="card">
     <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Ställning</div>
     <table id="standings"></table>
+    <div class="muted" id="note"></div>
   </div>
 
   <!-- HISTORIK -->
@@ -151,7 +161,7 @@
 
 <script>
   const LIMIT = 100;
-  const KEY = "kortpoang_state_v3";
+  const KEY = "kortpoang_state_v4";
 
   const el = (id)=>document.getElementById(id);
   const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
@@ -189,10 +199,6 @@
     return t;
   }
 
-  function showSetup(show){
-    el("setupCard").classList.toggle("hidden", !show);
-  }
-
   function renderCountSelect(selected){
     const sel = el("count");
     sel.innerHTML = "";
@@ -205,7 +211,6 @@
     }
   }
 
-  // iOS-säkrare än replaceAll
   function escapeHtml(s){
     return String(s||"")
       .split("&").join("&amp;")
@@ -242,7 +247,7 @@
     });
   }
 
-  // ---- Confetti (burst) ----
+  // ---- Confetti ----
   const conf = { canvas:null, ctx:null, parts:[], raf:null, endAt:0 };
 
   function confettiEnsure(){
@@ -270,7 +275,7 @@
     confettiEnsure();
     conf.parts = [];
     const colors = ["#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6","#ec4899"];
-    const count = 160;
+    const count = 170;
     const startX = window.innerWidth / 2;
     const startY = window.innerHeight / 3;
 
@@ -278,18 +283,18 @@
       conf.parts.push({
         x: startX + rand(-20,20),
         y: startY + rand(-10,10),
-        vx: rand(-6,6),
-        vy: rand(-12,-4),
-        g: rand(0.25,0.45),
+        vx: rand(-6.5,6.5),
+        vy: rand(-13,-4),
+        g: rand(0.25,0.48),
         rot: rand(0, Math.PI*2),
-        vr: rand(-0.25, 0.25),
+        vr: rand(-0.28, 0.28),
         size: rand(6, 12),
         color: pick(colors),
-        life: rand(55, 95)
+        life: rand(60, 100)
       });
     }
 
-    conf.endAt = Date.now() + 1600;
+    conf.endAt = Date.now() + 1700;
     if (!conf.raf) conf.raf = requestAnimationFrame(confettiTick);
   }
 
@@ -311,7 +316,7 @@
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 40));
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 45));
       ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.6);
       ctx.restore();
     }
@@ -340,7 +345,7 @@
     while(outQueue.length){
       const it = outQueue.shift();
       showOutToast(it.name, it.total);
-      await new Promise(r => setTimeout(r, 2050));
+      await new Promise(r => setTimeout(r, 2100));
     }
     showingOut = false;
   }
@@ -351,7 +356,7 @@
     el("overlay").classList.add("show");
     confettiBurst();
     try { if (navigator.vibrate) navigator.vibrate([30, 30, 30]); } catch(e){}
-    setTimeout(()=> el("overlay").classList.remove("show"), 2000);
+    setTimeout(()=> el("overlay").classList.remove("show"), 2050);
   }
 
   function renderAll(state){
@@ -364,10 +369,8 @@
       const row = document.createElement("div");
       row.className = "row";
       row.style.marginTop = "10px";
-      const a = state.players[i];
-      const b = state.players[i+1];
 
-      [a,b].forEach(p=>{
+      [state.players[i], state.players[i+1]].forEach(p=>{
         if(!p) return;
         const out = (t[p]||0) >= LIMIT;
         row.innerHTML +=
@@ -391,9 +394,13 @@
     table.innerHTML = "";
     sorted.forEach(p=>{
       const val = t[p]||0;
-      const tag = val>=LIMIT ? " • UTE" : "";
-      table.innerHTML += '<tr><td>' + escapeHtml(p) + '</td><td>' + val + tag + '</td></tr>';
+      const tag = val>=LIMIT ? ' <span class="muted">• UTE</span>' : "";
+      table.innerHTML += '<tr><td>' + escapeHtml(p) + tag + '</td><td>' + val + '</td></tr>';
     });
+
+    // Note
+    const alive = state.players.filter(p => (t[p]||0) < LIMIT);
+    el("note").textContent = alive.length === 1 ? ("Kvar: " + alive[0]) : "";
 
     // Historik
     const hist = el("history");
@@ -413,7 +420,10 @@
 
   renderCountSelect(state.players.length || 4);
   renderNameFields(state);
-  showSetup(false);
+
+  // göm setup som standard -> "appigare"
+  el("setupCard").style.display = "none";
+
   renderAll(state);
   save(state);
 
@@ -423,26 +433,26 @@
     state.players = collectNames();
     state.rounds = [];
     save(state);
-    showSetup(false);
+    el("setupCard").style.display = "none";
     renderAll(state);
     window.scrollTo({ top: 0, behavior:"smooth" });
   });
 
   el("btnContinue").addEventListener("click", ()=>{
-    showSetup(false);
+    el("setupCard").style.display = "none";
     renderAll(state);
     window.scrollTo({ top: 0, behavior:"smooth" });
   });
 
   el("btnSetupClose").addEventListener("click", ()=>{
-    showSetup(false);
+    el("setupCard").style.display = "none";
     window.scrollTo({ top: 0, behavior:"smooth" });
   });
 
   el("btnSetup").addEventListener("click", ()=>{
     renderCountSelect(state.players.length || 4);
     renderNameFields(state);
-    showSetup(true);
+    el("setupCard").style.display = "block";
     window.scrollTo({ top: 0, behavior:"smooth" });
   });
 
@@ -485,10 +495,6 @@
     save(state);
     renderAll(state);
   });
-
-  if(!state.players || state.players.length < 2){
-    showSetup(true);
-  }
 </script>
 </body>
 </html>
