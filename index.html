@@ -65,7 +65,7 @@
     }
 
     .toast {
-      width: min(420px, 100%);
+      width: min(460px, 100%);
       background: white;
       border-radius: 16px;
       padding: 16px 16px 14px;
@@ -79,9 +79,9 @@
     }
     .overlay.show .toast {
       animation: popIn .20s ease-out forwards, popOut .35s ease-in forwards;
-      animation-delay: 0s, 1.75s;
+      animation-delay: 0s, 2.15s;
     }
-    .toast .big { font-size: 26px; font-weight: 750; margin-bottom: 6px; }
+    .toast .big { font-size: 26px; font-weight: 800; margin-bottom: 6px; }
     .toast .sub { font-size: 14px; color:#6b7280; }
 
     @keyframes popIn { to { transform: scale(1); opacity: 1; } }
@@ -161,7 +161,7 @@
 
 <script>
   const LIMIT = 100;
-  const KEY = "kortpoang_state_v4";
+  const KEY = "kortpoang_state_v6";
 
   const el = (id)=>document.getElementById(id);
   const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
@@ -169,7 +169,13 @@
   function nowStr(){ return new Date().toLocaleString(); }
 
   function defaultState(){
-    return { players: ["Emma","Ola","Oliver","Sophie"], rounds: [], updatedAt: nowStr() };
+    return {
+      players: ["Emma","Ola","Oliver","Sophie"],
+      rounds: [],
+      outOrder: [],     // ordning man åker ut (först ute först i listan)
+      winnerShown: false,
+      updatedAt: nowStr()
+    };
   }
 
   function load(){
@@ -178,6 +184,8 @@
       if(!raw) return defaultState();
       const s = JSON.parse(raw);
       if(!s || !Array.isArray(s.players) || !Array.isArray(s.rounds)) return defaultState();
+      if(!Array.isArray(s.outOrder)) s.outOrder = [];
+      if(typeof s.winnerShown !== "boolean") s.winnerShown = false;
       return s;
     }catch(e){
       return defaultState();
@@ -271,30 +279,31 @@
   function rand(min,max){ return Math.random()*(max-min)+min; }
   function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 
-  function confettiBurst(){
+  function confettiBurst(strength){
     confettiEnsure();
     conf.parts = [];
+
     const colors = ["#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6","#ec4899"];
-    const count = 170;
+    const count = strength === "big" ? 260 : 170;
     const startX = window.innerWidth / 2;
     const startY = window.innerHeight / 3;
 
     for(let i=0;i<count;i++){
       conf.parts.push({
-        x: startX + rand(-20,20),
-        y: startY + rand(-10,10),
-        vx: rand(-6.5,6.5),
-        vy: rand(-13,-4),
-        g: rand(0.25,0.48),
+        x: startX + rand(-25,25),
+        y: startY + rand(-15,15),
+        vx: rand(-7.5,7.5),
+        vy: rand(-15,-5),
+        g: rand(0.24,0.52),
         rot: rand(0, Math.PI*2),
-        vr: rand(-0.28, 0.28),
-        size: rand(6, 12),
+        vr: rand(-0.32, 0.32),
+        size: rand(6, 13),
         color: pick(colors),
-        life: rand(60, 100)
+        life: rand(70, 115)
       });
     }
 
-    conf.endAt = Date.now() + 1700;
+    conf.endAt = Date.now() + (strength === "big" ? 2600 : 1900);
     if (!conf.raf) conf.raf = requestAnimationFrame(confettiTick);
   }
 
@@ -316,12 +325,12 @@
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 45));
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 55));
       ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.6);
       ctx.restore();
     }
 
-    conf.parts = conf.parts.filter(p => p.life > 0 && p.y < window.innerHeight + 60);
+    conf.parts = conf.parts.filter(p => p.life > 0 && p.y < window.innerHeight + 80);
 
     if(Date.now() < conf.endAt && conf.parts.length){
       conf.raf = requestAnimationFrame(confettiTick);
@@ -331,32 +340,49 @@
     }
   }
 
-  // ---- OUT toast queue ----
-  const outQueue = [];
-  let showingOut = false;
+  // ---- Toast queue ----
+  const toastQueue = [];
+  let showingToast = false;
 
-  function enqueueOut(name, total){
-    outQueue.push({name, total});
-    if(!showingOut) runOutQueue();
+  function enqueueToast(title, sub, bigConfetti){
+    toastQueue.push({title, sub, bigConfetti});
+    if(!showingToast) runToastQueue();
   }
 
-  async function runOutQueue(){
-    showingOut = true;
-    while(outQueue.length){
-      const it = outQueue.shift();
-      showOutToast(it.name, it.total);
-      await new Promise(r => setTimeout(r, 2100));
+  async function runToastQueue(){
+    showingToast = true;
+    while(toastQueue.length){
+      const it = toastQueue.shift();
+      showToast(it.title, it.sub, it.bigConfetti);
+      await new Promise(r => setTimeout(r, 2550));
     }
-    showingOut = false;
+    showingToast = false;
   }
 
-  function showOutToast(name, total){
-    el("toastTitle").textContent = name + " är UTE!";
-    el("toastSub").textContent = "Total: " + total + " (≥ " + LIMIT + ")";
+  function showToast(title, sub, bigConfetti){
+    el("toastTitle").textContent = title;
+    el("toastSub").textContent = sub || "";
     el("overlay").classList.add("show");
-    confettiBurst();
+    confettiBurst(bigConfetti ? "big" : "normal");
     try { if (navigator.vibrate) navigator.vibrate([30, 30, 30]); } catch(e){}
-    setTimeout(()=> el("overlay").classList.remove("show"), 2050);
+    setTimeout(()=> el("overlay").classList.remove("show"), bigConfetti ? 2500 : 2350);
+  }
+
+  function recomputeOutOrderFromRounds(state){
+    // Bygg om outOrder deterministiskt från historik (för Undo)
+    const outOrder = [];
+    const running = {};
+    state.players.forEach(p => running[p] = 0);
+
+    for(const r of state.rounds){
+      state.players.forEach(p => running[p] += Number(r[p]||0));
+      state.players.forEach(p=>{
+        if(running[p] >= LIMIT && outOrder.indexOf(p) === -1){
+          outOrder.push(p);
+        }
+      });
+    }
+    state.outOrder = outOrder;
   }
 
   function renderAll(state){
@@ -383,12 +409,21 @@
       box.appendChild(row);
     }
 
-    // Standings (sorterade)
-    const sorted = state.players.slice().sort((a,b)=>{
-      const da = t[a]||0, db = t[b]||0;
-      if(da!==db) return da-db;
-      return a.localeCompare(b);
+    // Sortering:
+    // Aktiva sorterade på poäng
+    const active = state.players.filter(p => (t[p]||0) < LIMIT);
+    active.sort((a,b)=> (t[a]||0)-(t[b]||0) || a.localeCompare(b));
+
+    // Ute sorterade i utordning (först ute ska längst ner => först ute först i listan)
+    const out = state.players.filter(p => (t[p]||0) >= LIMIT);
+    // Se till att alla ute finns i outOrder (om man laddar gammal data)
+    out.forEach(p=>{
+      if(state.outOrder.indexOf(p) === -1) state.outOrder.push(p);
     });
+
+    out.sort((a,b)=> state.outOrder.indexOf(a) - state.outOrder.indexOf(b));
+
+    const sorted = active.concat(out);
 
     const table = el("standings");
     table.innerHTML = "";
@@ -398,9 +433,13 @@
       table.innerHTML += '<tr><td>' + escapeHtml(p) + tag + '</td><td>' + val + '</td></tr>';
     });
 
-    // Note
+    // Note + winner
     const alive = state.players.filter(p => (t[p]||0) < LIMIT);
-    el("note").textContent = alive.length === 1 ? ("Kvar: " + alive[0]) : "";
+    if(alive.length === 1){
+      el("note").textContent = "Kvar: " + alive[0];
+    } else {
+      el("note").textContent = "";
+    }
 
     // Historik
     const hist = el("history");
@@ -415,14 +454,18 @@
     }
   }
 
-  // ---- Actions ----
+  // ---- Init ----
   let state = load();
 
+  // Setup UI init
   renderCountSelect(state.players.length || 4);
   renderNameFields(state);
 
-  // göm setup som standard -> "appigare"
+  // Göm setup som standard
   el("setupCard").style.display = "none";
+
+  // Se till att outOrder finns rimligt (t.ex. om state äldre)
+  recomputeOutOrderFromRounds(state);
 
   renderAll(state);
   save(state);
@@ -432,6 +475,8 @@
   el("btnStart").addEventListener("click", ()=>{
     state.players = collectNames();
     state.rounds = [];
+    state.outOrder = [];
+    state.winnerShown = false;
     save(state);
     el("setupCard").style.display = "none";
     renderAll(state);
@@ -468,23 +513,39 @@
     state.players.forEach(p=> { if(round[p] === undefined) round[p] = 0; });
 
     state.rounds.push(round);
-    save(state);
-
-    qsa(".pt").forEach(inp => inp.value = "");
-
-    renderAll(state);
 
     const newTotals = totals(state);
+
+    // Registrera ny-utslagna + toast
     state.players.forEach(p=>{
       if ((prevTotals[p]||0) < LIMIT && (newTotals[p]||0) >= LIMIT) {
-        enqueueOut(p, newTotals[p]);
+        if (state.outOrder.indexOf(p) === -1) state.outOrder.push(p);
+        enqueueToast(p + " är UTE!", "Total: " + newTotals[p] + " (≥ " + LIMIT + ")", false);
       }
     });
+
+    // Winner-check (visas bara en gång per match)
+    const aliveNow = state.players.filter(p => (newTotals[p]||0) < LIMIT);
+    if(aliveNow.length === 1 && state.winnerShown === false){
+      state.winnerShown = true;
+      enqueueToast("VINNARE 🏆", aliveNow[0], true);
+    }
+
+    save(state);
+    qsa(".pt").forEach(inp => inp.value = "");
+    renderAll(state);
   });
 
   el("btnUndo").addEventListener("click", ()=>{
     if(state.rounds.length===0) return;
     state.rounds.pop();
+
+    // Rebuild outOrder + winnerShown from history
+    recomputeOutOrderFromRounds(state);
+    const t = totals(state);
+    const alive = state.players.filter(p => (t[p]||0) < LIMIT);
+    state.winnerShown = (alive.length === 1 && state.rounds.length > 0);
+
     save(state);
     renderAll(state);
   });
@@ -492,6 +553,8 @@
   el("btnReset").addEventListener("click", ()=>{
     if(!confirm("Nollställ match?")) return;
     state.rounds = [];
+    state.outOrder = [];
+    state.winnerShown = false;
     save(state);
     renderAll(state);
   });
